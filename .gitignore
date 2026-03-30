@@ -1,6 +1,10 @@
-/store/log/*
-/store/*
+#ignore store
+store/
 
+# keep the directory
+!store/.gitkeep
+
+# Built executables
 engine
 trader
 gateway

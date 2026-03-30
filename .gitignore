@@ -1,0 +1,6 @@
+/store/log/*
+/store/*
+
+engine
+trader
+gateway

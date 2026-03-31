@@ -1,8 +1,6 @@
 #ignore store
-store/
-
-# keep the directory
-!store/.gitkeep
+store/F*
+store/log/*
 
 # Built executables
 engine

@@ -2,6 +2,8 @@
 store/F*
 store/log/*
 
+github
+github.pub
 # Built executables
 engine
 trader

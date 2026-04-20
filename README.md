@@ -11,18 +11,18 @@ Current Order of Events:
 - Spin up gateway 
 - Start trader1
 - Start trader2
-Trader1: 
+  Trader1: 
 - Run Invalid Symbol Test
 - Run Report Test
 - Run Scaling test
 - Sync with Trader 2
-Trader1 and Trader2 (Simultaneously):
+  Trader1 and Trader2 (Simultaneously):
 - Run the matching trades test
 - Run the deep book test
-Gateway: 
+  Gateway: 
 - Route all trades to their destination
 - Write rolling thorughput to metrics.txt for use by the accompanying widget
-Engines: 
+  Engines: 
 - Receive and book test trades 
 - Generate and send reports to gateway 
 

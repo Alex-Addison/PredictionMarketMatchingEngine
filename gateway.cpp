@@ -6,84 +6,84 @@
 #include <quickfix/FileLog.h>
 #include <quickfix/SessionSettings.h>
 #include <quickfix/Session.h>
+
 #include <iostream>
 #include <string>
 #include <map>
 #include <fstream>
-#include <sstream>
+#include <atomic>
+#include <thread>
+#include <chrono>
+#include <ctime>
 
 class GatewayApp : public FIX::Application {
 private:
-    // Routing table from ticker to matching engine
     std::map<std::string, std::string> routingMap;          
-    // Map of engineID to SessionID for active connections
     std::map<std::string, FIX::SessionID> engineSessions;
-    // SessionID for the trader connection
-    FIX::SessionID traderSessionID;
-    //TODO: add support for multiple traders
+    std::map<std::string, FIX::SessionID> traderSessions; 
 
-    // Load routing table from routing.txt file
-    void loadRoutingTable() {
+public:
+    std::atomic<uint64_t> msgCount{0};
+    std::atomic<bool> loadTestRunning{false};
+
+    GatewayApp() {
+        // get routing info from the routing.txt file
         std::ifstream file("routing.txt");
         std::string line;
-        // iterate over entries in routing.txt and populate routingMap
         while (std::getline(file, line)) {
-            // find the position of the '=' delimiter
             auto delimPos = line.find('=');
-            // split the line into prefix and engineID, then add to map
             if (delimPos != std::string::npos) {
-                std::string prefix = line.substr(0, delimPos);
-                std::string engineID = line.substr(delimPos + 1);
-                routingMap[prefix] = engineID;
-                std::cout << "[GATEWAY] Loaded Route: " << prefix << " -> " << engineID << std::endl;
-            }
-            // routing.txt format error handling
-            else {
-                std::cout << "[GATEWAY ERROR] Invalid routing entry: " << line << std::endl;
+                routingMap[line.substr(0, delimPos)] = line.substr(delimPos + 1);
             }
         }
     }
 
-public:
-    //constructor, load routing table on startup
-    GatewayApp() { loadRoutingTable(); }
-
-    // ovverride FIX's pure virtual functions
     void onCreate(const FIX::SessionID&) override {}
+    // establish connections to engines and traders
+    void onLogon(const FIX::SessionID& sessionID) override {
+        std::string remoteParty = sessionID.getTargetCompID().getString();
+
+        if (remoteParty.find("TRADER") != std::string::npos) {
+            traderSessions[remoteParty] = sessionID;
+            std::cout << "[GATEWAY] Registered Session: " << remoteParty << std::endl;
+        } 
+        else if (remoteParty.find("ENGINE") != std::string::npos) {
+            engineSessions[remoteParty] = sessionID;
+            std::cout << "[GATEWAY] Registered Engine: " << remoteParty << std::endl;
+        }
+    }
     void onLogout(const FIX::SessionID&) override {}
     void toAdmin(FIX::Message&, const FIX::SessionID&) override {}
     void toApp(FIX::Message&, const FIX::SessionID&) throw(FIX::DoNotSend) override {}
-    void fromAdmin(const FIX::Message&, const FIX::SessionID&) throw(FIX::FieldNotFound, FIX::IncorrectDataFormat, FIX::IncorrectTagValue, FIX::RejectLogon) override {}
 
-    // Handle new logons for trader/engine connections
-    void onLogon(const FIX::SessionID& sessionID) override {
-        std::string target = sessionID.getTargetCompID().getString();
-        if (target == "TRADER") {
-            traderSessionID = sessionID;
-            std::cout << "[GATEWAY] Trader connected." << std::endl;
-        } else {
-            // Other connections are assumed to be an Engine
-            engineSessions[target] = sessionID;
-            std::cout << "[GATEWAY] Connected to Matching Engine: " << target << std::endl;
+    // debug quickFIX protocol issues
+    void fromAdmin(const FIX::Message& message, const FIX::SessionID&) 
+        throw(FIX::FieldNotFound, FIX::IncorrectDataFormat, FIX::IncorrectTagValue, FIX::RejectLogon) override {
+        
+        if (message.getHeader().getField(FIX::FIELD::MsgType) == FIX::MsgType_Reject) {
+            std::cout << "\n[ADMIN] QuickFIX dropped a message" << std::endl;
+            
+            // tag # of the failure
+            if (message.isSetField(FIX::FIELD::RefTagID)) {
+                std::cout << "[ADMIN] Missing Tag: " << message.getField(FIX::FIELD::RefTagID) << std::endl;
+            }
+            // print raw fix string to debug
+            std::cout << "[ADMIN] Raw FIX String:  " << message.toString() << "\n" << std::endl;
         }
     }
 
-    // Handle incoming messages from traders and engines
     void fromApp(const FIX::Message& message, const FIX::SessionID& sessionID) 
         throw(FIX::FieldNotFound, FIX::IncorrectDataFormat, FIX::IncorrectTagValue, FIX::UnsupportedMessageType) override {
-        
-        // get sender from sessionID
+        // set flag that test is running
+        loadTestRunning = true;
+        msgCount++;
+
         std::string sender = sessionID.getTargetCompID().getString();
         
-        // mutable copy of message to modify and forward
-        FIX::Message forwardMessage = message;
-        
-        if (sender == "TRADER") {
-            // extract symbol from message
+        if (sender.find("TRADER") != std::string::npos) {
             std::string symbol = message.getField(FIX::FIELD::Symbol);
             std::string targetEngine = "";
 
-            // Find engine based on symbol prefix (market identifier)
             for (const auto& pair : routingMap) {
                 if (symbol.find(pair.first) != std::string::npos) {
                     targetEngine = pair.second;
@@ -91,18 +91,43 @@ public:
                 }
             }
 
-            // Route the message to the appropriate engine if found
             if (!targetEngine.empty() && engineSessions.count(targetEngine)) {
-                std::cout << "[GATEWAY] Routing " << symbol << " -> " << targetEngine << std::endl;
-                FIX::Session::sendToTarget(forwardMessage, engineSessions[targetEngine]);
-            } else {
-                std::cout << "[GATEWAY ERROR] No route for symbol: " << symbol << std::endl;
+                FIX::Message msgCopy = message;
+                FIX::Session::sendToTarget(msgCopy, engineSessions[targetEngine]);
+            } 
+            else { // reject bad symbol
+                std::cout << "Rejecting Invalid Symbol: " << symbol << std::endl;
+                FIX::Message reject;
+                reject.getHeader().setField(FIX::BeginString("FIXT.1.1"));
+                reject.getHeader().setField(FIX::MsgType(FIX::MsgType_ExecutionReport));
+                
+                reject.setField(FIX::ClOrdID(message.getField(FIX::FIELD::ClOrdID)));
+                reject.setField(FIX::OrderID("NONE"));
+                reject.setField(FIX::ExecID("REJ_" + std::to_string(std::time(0))));
+                reject.setField(FIX::OrdStatus(FIX::OrdStatus_REJECTED)); 
+                reject.setField(FIX::ExecType(FIX::ExecType_REJECTED));
+                reject.setField(FIX::Symbol(symbol));
+                reject.setField(FIX::Side(message.getField(FIX::FIELD::Side)[0]));
+                reject.setField(FIX::LeavesQty(0));
+                reject.setField(FIX::CumQty(0));
+                
+                reject.setField(FIX::TransactTime()); 
+                reject.setField(FIX::Text("Gateway: Invalid Symbol"));
+                reject.setField(FIX::AvgPx(0.0)); 
+                reject.setField(FIX::OrderQty(std::stod(message.getField(FIX::FIELD::OrderQty))));
+                FIX::Session::sendToTarget(reject, sessionID);
             }
         } 
         else {
-            // Message came from an Engine, route the Execution Report back to the Trader
-            std::cout << "[GATEWAY] Routing ExecReport from " << sender << " -> TRADER" << std::endl;
-            FIX::Session::sendToTarget(forwardMessage, traderSessionID);
+            std::string clOrdID = message.getField(FIX::FIELD::ClOrdID);
+            FIX::Message msgCopy = message;
+            // send to the right trader
+            if (clOrdID.find("TRD1") == 0 && traderSessions.count("TRADER1")) {
+                FIX::Session::sendToTarget(msgCopy, traderSessions["TRADER1"]);
+            } 
+            else if (clOrdID.find("TRD2") == 0 && traderSessions.count("TRADER2")) {
+                FIX::Session::sendToTarget(msgCopy, traderSessions["TRADER2"]);
+            }
         }
     }
 };
@@ -110,29 +135,39 @@ public:
 int main(int argc, char** argv) {
     if (argc != 2) return 1;
     try {
-        // set our settings (from config file)
         FIX::SessionSettings settings(argv[1]);
-        // create our application
         GatewayApp application;
-        // set store and logs get put in the store/ and store/log/ directories
         FIX::FileStoreFactory storeFactory(settings);
         FIX::FileLogFactory logFactory(settings);
-        // create acceptor for incoming connections and initiator for outgoing connections
         FIX::ThreadedSocketAcceptor acceptor(application, storeFactory, settings, logFactory);
         FIX::SocketInitiator initiator(application, storeFactory, settings, logFactory);
-        // start both acceptor and initiator
+        
         acceptor.start();
         initiator.start();
 
-        // block until user hits enter
-        std::cin.get();
+        std::cout << "[GATEWAY] Running" << std::endl;
+        
+        uint64_t lastMsgCount = 0;
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            
+            if (application.loadTestRunning) {
+                uint64_t currentTotal = application.msgCount.load();
+                uint64_t rollingThroughput = (currentTotal - lastMsgCount)*10;
+                lastMsgCount = currentTotal;
 
-        // close both acceptor and initiator on shutdown
+                // write to file for the python widget
+                std::ofstream metricFile("metrics.txt", std::ios::trunc); 
+                if (metricFile.is_open()) {
+                    metricFile << rollingThroughput;
+                    metricFile.close();
+                }
+            }
+        }
         initiator.stop();
         acceptor.stop();
-        return 0;
     } catch (FIX::Exception& e) {
         std::cout << e.what() << std::endl;
-        return 1;
     }
+    return 0;
 }

@@ -100,7 +100,11 @@ The implementation is currently hardcoded to work with only 3 markets (KXFED, KX
 
 <img width="656" height="216" alt="image" src="https://github.com/user-attachments/assets/d7f6994d-85ae-4f1f-a1de-b23e3e447f11" />
 
+
+
 <img width="501" height="225" alt="image" src="https://github.com/user-attachments/assets/021ad30f-a934-4801-a5a2-8f830be1b923" />
+
+Important Note: the "Total Time" is not the time it takes to finish the simulation, but rather the sum of all latencies for all the trades.
 
 Even though the order book is optimized by using atomic arrays and circular buffers instead of things like maps and vectors, there is still a bottleneck when it becomes very full. Additionally, the implementation uses C++14 and cannot be updated due to compatibility issues with quickFIX, the FIX library used (this also has the annoying effect of raising the compilation errors shown below):
 

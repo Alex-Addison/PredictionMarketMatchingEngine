@@ -42,7 +42,7 @@ For localhost testing:
 
 Pull the code from repo, directory structure should look something like this: 
 
-<img width="757" height="777" alt="Screenshot 2026-03-29 234600" src="https://github.com/user-attachments/assets/0c622f74-51cc-421c-bbe3-20557c82fb78" />
+<img width="1266" height="131" alt="image" src="https://github.com/user-attachments/assets/59df926d-4c49-4bb3-9752-5b50ac987b4b" />
 
 Ensure you are in a linux environment (I used WSL with ubuntu)
 Run `sudo apt-get update -y -qq && sudo apt-get install -y build-essential cmake libquickfix-dev`

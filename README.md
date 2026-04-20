@@ -36,6 +36,39 @@ The project also comes with a python notebook widget to monitor the rolling thro
 
 <img width="1666" height="654" alt="image" src="https://github.com/user-attachments/assets/80bd5d9e-d48d-47f3-9b63-82942839510e" />
 
+The project splits matching logic into seperate engine nodes for different markets, and the effects of this scaling can be seen in the results of a scaling test:
+
+<img width="680" height="488" alt="image" src="https://github.com/user-attachments/assets/30274443-f1c5-4d79-a651-edf6848169af" />
+
+Here we can see the latency results for sending 10,000 trades to a single engine vs sending 10,000 trades to 2 engines in an alternating fashion. This shows how the scaling improves the speed of the system.
+
+Snippets of code from that test is here:
+
+Single node
+```
+        for (int i = 0; i < 10000; i++) {
+            // Alternate buy/sell they clear
+            char side = (i % 2 == 0) ? FIX::Side_BUY : FIX::Side_SELL;
+            
+            // idx 30000 to 39999
+            sendOrder(activeSessionID, 30000 + i, "KXFED-26DEC-5.00", side, 10, 0.50);
+            
+            std::this_thread::sleep_for(std::chrono::microseconds(10)); 
+        }
+```
+Dual Node:
+```
+for (int i = 0; i < 10000; i++) {
+            std::string targetSymbol = ((i / 2) % 2 == 0) ? "KXFED-26DEC-5.00" : "KXWEATHER-MIA-85";
+            char side = (i % 2 == 0) ? FIX::Side_BUY : FIX::Side_SELL;
+
+            // idx 40000 to 49999
+            sendOrder(activeSessionID, 40000 + i, targetSymbol, side, 10, 0.50);
+            
+            std::this_thread::sleep_for(std::chrono::microseconds(10)); 
+        }
+```
+
 (b) How to use your implementation
 
 For localhost testing:
@@ -97,10 +130,6 @@ Example log:
 (c) Limitations of your implementation
 
 The implementation is currently hardcoded to work with only 3 markets (KXFED, KXWEATHER, and the SYNC-MARKET), and it has two simulated traders. The main limitation is consistent speed, as we can see that the average and minimum latencies are both quite fast (sub 1-ms), the max latency is 1 - 2 orders of magnitude longer: 
-
-<img width="656" height="216" alt="image" src="https://github.com/user-attachments/assets/d7f6994d-85ae-4f1f-a1de-b23e3e447f11" />
-
-
 
 <img width="501" height="225" alt="image" src="https://github.com/user-attachments/assets/021ad30f-a934-4801-a5a2-8f830be1b923" />
 

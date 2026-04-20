@@ -7,10 +7,10 @@ A distributed matching engine for prediction markets (like kalshi, polymarket, r
 The project is a distributed system with 5 nodes: 2 trader nodes, a gateway, and 2 separate engine nodes. The node behavior is defined by each respective .cpp file. The project successfully creates and connects FIX sessions between all the nodes, and runs 5 tests.
 
 Current Order of Events: 
-Spin up engine 1 and 2 
-Spin up gateway 
-Start trader1
-Start trader2
+- Spin up engine 1 and 2 
+- Spin up gateway 
+- Start trader1
+- Start trader2
 Trader1: 
 - Run Invalid Symbol Test
 - Run Report Test
